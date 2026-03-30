@@ -1,0 +1,266 @@
+<!-- V2 — Configurable Three.js Hamster Wheel -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hamster Wheel V2</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; touch-action: none; user-select: none; background: #07060b; }
+  #mount { width: 100vw; height: 100vh; cursor: grab; }
+  #mount:active { cursor: grabbing; }
+  #vignette {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(ellipse 80% 70% at 50% 50%, transparent 22%, rgba(7,6,11,0.5) 60%, rgba(7,6,11,0.92) 100%);
+    pointer-events: none; z-index: 10;
+  }
+</style>
+</head>
+<body>
+<div id="mount"></div>
+<div id="vignette"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function() {
+  // === CONFIGURABLE INPUTS ===
+  const NUM_TILES = 9;
+  const PLANE_W = 310;
+  const PLANE_H = 440;
+  const ARC_GAP_DEG = 1.96;
+  const COVERAGE = 0.752;
+  const TEXTURE_SCALE = 1.68;
+
+  // === DERIVED VALUES ===
+  const ANGLE_STEP = (Math.PI * 2) / NUM_TILES;
+  const gapRad = ARC_GAP_DEG * Math.PI / 180;
+  const RADIUS = Math.round((PLANE_H / 2) / Math.sin((ANGLE_STEP - gapRad) / 2));
+  const frontAngularH = 2 * Math.atan((PLANE_H / 2) / RADIUS) * (180 / Math.PI);
+  const FOV = Math.round(frontAngularH / COVERAGE);
+  const CANVAS_W = Math.round(PLANE_W * TEXTURE_SCALE);
+  const CANVAS_H = Math.round(PLANE_H * TEXTURE_SCALE);
+
+  const COLORS = ['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#1abc9c','#e67e22','#2980b9','#e84393'];
+  const FRICTION = 0.955;
+
+  const mount = document.getElementById('mount');
+
+  // === RENDERER ===
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  mount.appendChild(renderer.domElement);
+
+  // === SCENE & CAMERA ===
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x07060b);
+
+  const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 1, 5000);
+  camera.position.set(0, 0, 0);
+  camera.lookAt(0, 0, -RADIUS);
+
+  // === HELPERS ===
+  function darken(hex, pct) {
+    let r = parseInt(hex.slice(1, 3), 16);
+    let g = parseInt(hex.slice(3, 5), 16);
+    let b = parseInt(hex.slice(5, 7), 16);
+    const f = 1 - pct / 100;
+    r = Math.round(r * f);
+    g = Math.round(g * f);
+    b = Math.round(b * f);
+    return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function createTileTexture(index) {
+    const canvas = document.createElement('canvas');
+    canvas.width = CANVAS_W;
+    canvas.height = CANVAS_H;
+    const ctx = canvas.getContext('2d');
+    const cr = 20;
+
+    // Clip to rounded rect
+    ctx.save();
+    roundRect(ctx, 0, 0, CANVAS_W, CANVAS_H, cr);
+    ctx.clip();
+
+    // Gradient background
+    const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
+    grad.addColorStop(0, COLORS[index]);
+    grad.addColorStop(1, darken(COLORS[index], 25));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // Glass sheen overlay
+    const sheen = ctx.createLinearGradient(0, 0, 0, CANVAS_H * 0.5);
+    sheen.addColorStop(0, 'rgba(255,255,255,0.13)');
+    sheen.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sheen;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H * 0.5);
+
+    // Large centered number
+    const numSize = Math.round(140 * TEXTURE_SCALE);
+    ctx.font = 'bold ' + numSize + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,0.4)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillText(String(index + 1), CANVAS_W / 2, CANVAS_H / 2 - numSize * 0.1);
+
+    // Subtitle
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    const subSize = Math.round(24 * TEXTURE_SCALE);
+    ctx.font = subSize + 'px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillText('TILE ' + (index + 1) + ' OF ' + NUM_TILES, CANVAS_W / 2, CANVAS_H / 2 + numSize * 0.45);
+
+    // Inner border stroke
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 2, 2, CANVAS_W - 4, CANVAS_H - 4, cr - 1);
+    ctx.stroke();
+
+    ctx.restore();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
+  }
+
+  // === BUILD TILES ===
+  const group = new THREE.Group();
+  const meshes = [];
+
+  for (let i = 0; i < NUM_TILES; i++) {
+    const texture = createTileTexture(i);
+    const geo = new THREE.PlaneGeometry(PLANE_W, PLANE_H);
+    const mat = new THREE.MeshBasicMaterial({
+      map: texture,
+      side: THREE.FrontSide,
+      transparent: true,
+      opacity: 1.0
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(
+      0,
+      Math.sin(i * ANGLE_STEP) * RADIUS,
+      -Math.cos(i * ANGLE_STEP) * RADIUS
+    );
+    mesh.rotation.x = i * ANGLE_STEP;
+    group.add(mesh);
+    meshes.push(mesh);
+  }
+
+  scene.add(group);
+
+  // === OPACITY FALLOFF ===
+  function updateOpacity() {
+    const TWO_PI = Math.PI * 2;
+    for (let i = 0; i < NUM_TILES; i++) {
+      let a = (i * ANGLE_STEP + group.rotation.x) % TWO_PI;
+      if (a < 0) a += TWO_PI;
+      const facing = Math.cos(a);
+      const t = Math.max(0, (facing + 1) / 2);
+      meshes[i].material.opacity = 0.03 + Math.pow(t, 2.2) * 0.97;
+    }
+  }
+
+  // === INTERACTION STATE ===
+  let velocity = 0;
+  let dragging = false;
+  let lastY = 0;
+  let lastTime = 0;
+
+  function onDragStart(y) {
+    dragging = true;
+    lastY = y;
+    lastTime = performance.now();
+    velocity = 0;
+  }
+
+  function onDragMove(y) {
+    if (!dragging) return;
+    const now = performance.now();
+    const dt = now - lastTime || 16;
+    const dy = y - lastY;
+    velocity = (dy / dt) * 16 * 0.0025;
+    group.rotation.x += velocity;
+    lastY = y;
+    lastTime = now;
+  }
+
+  function onDragEnd() {
+    dragging = false;
+  }
+
+  // Mouse
+  mount.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    onDragStart(e.clientY);
+  });
+  window.addEventListener('mousemove', function(e) {
+    onDragMove(e.clientY);
+  });
+  window.addEventListener('mouseup', function() {
+    onDragEnd();
+  });
+
+  // Touch
+  mount.addEventListener('touchstart', function(e) {
+    onDragStart(e.touches[0].clientY);
+  });
+  mount.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    onDragMove(e.touches[0].clientY);
+  }, { passive: false });
+  mount.addEventListener('touchend', function() {
+    onDragEnd();
+  });
+
+  // Wheel
+  mount.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    const impulse = e.deltaY * 0.0008;
+    velocity += impulse;
+    group.rotation.x += impulse;
+  }, { passive: false });
+
+  // === RESIZE ===
+  window.addEventListener('resize', function() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // === ANIMATION LOOP ===
+  function animate() {
+    requestAnimationFrame(animate);
+    if (!dragging) {
+      velocity *= FRICTION;
+      if (Math.abs(velocity) < 0.00003) velocity = 0;
+      group.rotation.x += velocity;
+    }
+    updateOpacity();
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
