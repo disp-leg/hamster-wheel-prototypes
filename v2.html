@@ -111,7 +111,8 @@
     ctx.fillStyle = sheen;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H * 0.5);
 
-    // Large centered number
+    // Large centered number — numbering comes from bottom
+    const displayNum = index === 0 ? 1 : (NUM_TILES - index + 1);
     const numSize = Math.round(140 * TEXTURE_SCALE);
     ctx.font = 'bold ' + numSize + 'px sans-serif';
     ctx.textAlign = 'center';
@@ -120,7 +121,7 @@
     ctx.shadowBlur = 12;
     ctx.shadowOffsetY = 4;
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.fillText(String(index + 1), CANVAS_W / 2, CANVAS_H / 2 - numSize * 0.1);
+    ctx.fillText(String(displayNum), CANVAS_W / 2, CANVAS_H / 2 - numSize * 0.1);
 
     // Subtitle
     ctx.shadowColor = 'transparent';
@@ -129,7 +130,7 @@
     const subSize = Math.round(24 * TEXTURE_SCALE);
     ctx.font = subSize + 'px sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fillText('TILE ' + (index + 1) + ' OF ' + NUM_TILES, CANVAS_W / 2, CANVAS_H / 2 + numSize * 0.45);
+    ctx.fillText('TILE ' + displayNum + ' OF ' + NUM_TILES, CANVAS_W / 2, CANVAS_H / 2 + numSize * 0.45);
 
     // Inner border stroke
     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
